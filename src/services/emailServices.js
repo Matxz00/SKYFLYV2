@@ -1,61 +1,52 @@
 // src/services/emailServices.js
 
-import nodemailer from 'nodemailer';
-import dotenv from 'dotenv'; 
-
-// Carga las variables de entorno del archivo .env
+import * as brevo from '@getbrevo/brevo';
+import * as dotenv from 'dotenv';
 dotenv.config();
 
-// --- 1. Inicialización del Transportador ---
-// Usamos la configuración segura (SMTPS) para Gmail: Puerto 465 y secure: true
-const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,    // 'smtp.gmail.com'
-    port: 465, // Hardcodeamos 465 ya que es la configuración segura
-    secure: true, // Debe ser true para el puerto 465
-    auth: {
-        user: process.env.EMAIL_USER,    // Tu correo de Gmail
-        pass: process.env.EMAIL_PASS     // ¡Tu Contraseña de Aplicación de Google!
-    },
-    // Añadimos un tiempo de espera más largo para evitar el ETIMEDOUT en entornos de despliegue
-    connectionTimeout: 15000, 
-    greetingTimeout: 5000, 
-});
+// Inicializa el cliente de Brevo con la clave API
+const apiInstance = new brevo.TransactionalEmailsApi();
+const apiKey = apiInstance.authentications['apiKey'];
+apiKey.apiKey = process.env.BREVO_API_KEY; 
 
-// Verificación opcional del estado de la conexión (útil para el debugging)
-transporter.verify(function (error, success) {
-    if (error) {
-        console.error('Error al conectar con el servidor de correo:', error.message);
-        console.error('Verifica que EMAIL_PASS es una Contraseña de Aplicación de Google.');
-    } else {
-        console.log('Servidor de correo de Gmail listo para enviar mensajes.');
-    }
-});
+// Verificación básica de que la clave se cargó
+if (!process.env.BREVO_API_KEY) {
+    console.error("ERROR: La variable de entorno BREVO_API_KEY no está configurada.");
+}
 
-// --- 2. Función de Envío ---
 
 /**
- * Envía un correo electrónico usando Nodemailer.
- * @param {string} to - Destinatario del correo.
+ * Envía un correo electrónico usando la API HTTP de Brevo.
+ * * @param {string} to - Destinatario del correo.
  * @param {string} subject - Asunto del correo.
- * @param {string} html - Contenido HTML del correo.
- * @returns {Promise<any>} - El resultado de la operación de envío.
+ * @param {string} htmlContent - Contenido HTML del correo.
  */
-export const sendEmail = (to, subject, html) => {
+export const sendEmail = async (to, subject, htmlContent) => {
     
-    const mailOptions = {
-        from: process.env.EMAIL_USER, // El remitente es tu propio correo
-        to,
-        subject,
-        html,
-    };
+    const fromEmail = process.env.EMAIL_FROM;
 
-    console.log(`Intentando enviar correo a ${to} con asunto: ${subject}`);
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
     
-    // Retorna la promesa de Nodemailer
-    return transporter.sendMail(mailOptions)
-        .catch(error => {
-            console.error('Error en el envío de correo:', error);
-            // Re-lanza el error para que el controlador lo maneje
-            throw error; 
-        });
+    sendSmtpEmail.subject = subject;
+    // El remitente debe ser una dirección validada en el panel de Brevo
+    sendSmtpEmail.sender = { email: fromEmail }; 
+    sendSmtpEmail.to = [{ email: to }];
+    sendSmtpEmail.htmlContent = htmlContent;
+    
+    console.log(`Intentando enviar correo a ${to} usando la API HTTP de Brevo.`);
+    
+    try {
+        // La conexión usa HTTPS (puerto 443), que no será bloqueado por Railway
+        const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
+        
+        console.log('Correo enviado con éxito (API HTTP). ID:', response.body.messageId);
+        return response.body;
+
+    } catch (error) {
+        // Un error 401 aquí significa que la BREVO_API_KEY es incorrecta.
+        // Un error 400/403 podría significar que EMAIL_FROM no está validado.
+        const errorMessage = error.response ? error.response.text : error.message;
+        console.error('Error al enviar correo con Brevo (API):', errorMessage);
+        throw new Error(`Fallo al enviar el correo: ${errorMessage}`);
+    }
 };
