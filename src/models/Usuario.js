@@ -6,7 +6,7 @@ const UsuarioSchema = mongoose.Schema({
     username: { type: String, required: true, unique: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    twoFactorEnabled: { type: Boolean, default: false }, // Lo mantienes, indica si el 2FA está activado
+    twoFactorEnabled: { type: Boolean, default: true }, // Lo mantienes, indica si el 2FA está activado
     createdAt: { type: Date, default: Date.now },
     
     // --- Campos Temporales Necesarios ---
